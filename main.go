@@ -27,7 +27,6 @@ import (
 	"github.com/mattn/go-tty"
 	"github.com/pkg/browser"
 	"github.com/shurcooL/github_flavored_markdown"
-	"github.com/shurcooL/github_flavored_markdown/gfmstyle"
 	"github.com/urfave/cli"
 )
 
@@ -35,7 +34,7 @@ const (
 	column = 30
 
 	// VERSION is a version of this app
-	VERSION = "0.0.4"
+	VERSION = "0.0.5"
 )
 
 const templateDirContent = `
@@ -61,11 +60,14 @@ const templateBodyContent = `
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>{{.Name}}</title>
-  <link href="/assets/gfm/gfm.css" media="all" rel="stylesheet" type="text/css" />
+  <title>Memo: {{.Name}}</title>
+  <link href="/assets/style.css" media="all" rel="stylesheet" type="text/css" />
 </head>
 <body>
-{{.Body}}</body>
+  <div id="main-container">
+    {{.Body}}
+  </div>
+</body>
 </html>
 `
 
@@ -456,7 +458,7 @@ func cmdNew(c *cli.Context) error {
 		if title == "" {
 			title = time.Now().Format("2006-01-02")
 			file = title + ".md"
-			
+
 		} else {
 			file = time.Now().Format("2006-01-02-") + escape(title) + ".md"
 		}
@@ -713,7 +715,6 @@ func cmdServe(c *cli.Context) error {
 			})
 		}
 	})
-	http.Handle("/assets/gfm/", http.StripPrefix("/assets/gfm", http.FileServer(gfmstyle.Assets)))
 	http.Handle("/assets/", http.StripPrefix("/assets", http.FileServer(http.Dir(cfg.AssetsDir))))
 
 	addr := c.String("addr")
