@@ -43,14 +43,14 @@ const templateDirContent = `
 <head>
   <meta charset="UTF-8">
   <title>Memo Life For You</title>
+  <link href="/assets/style.css" media="all" rel="stylesheet" type="text/css" />
 </head>
-<style>
-li {list-style-type: none;}
-</style>
 <body>
-<ul>{{range .}}
-  <li><a href="/{{.Name}}">{{.Name}}</a><dd>{{.Body}}</dd></li>{{end}}
-</ul>
+<div id="main-overview">
+  <dl>{{range .}}
+    <dt><a href="/{{.Name}}">{{.Body}}</a></dt>{{end}}
+  </dl>
+</div>
 </body>
 </html>
 `
@@ -153,7 +153,7 @@ var commands = []cli.Command{
 		Flags: []cli.Flag{
 			cli.StringFlag{
 				Name:  "addr",
-				Value: ":8080",
+				Value: ":8910",
 				Usage: "server address",
 			},
 		},
