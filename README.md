@@ -35,7 +35,6 @@ GLOBAL OPTIONS:
 ```
 $ go get github.com/lillesvin/memo
 ```
-
 ## License
 
 MIT

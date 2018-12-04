@@ -32,6 +32,7 @@ import (
 
 const (
 	column = 30
+	width  = 80
 
 	// VERSION is a version of this app
 	VERSION = "0.0.5"
@@ -72,15 +73,16 @@ const templateBodyContent = `
 `
 
 const templateMemoContent = `# {{.Title}}
-
 `
 
 type config struct {
 	MemoDir          string `toml:"memodir"`
 	Editor           string `toml:"editor"`
 	Column           int    `toml:"column"`
+	Width            int    `toml:"width"`
 	SelectCmd        string `toml:"selectcmd"`
 	GrepCmd          string `toml:"grepcmd"`
+	MemoTemplate     string `toml:"memotemplate"`
 	AssetsDir        string `toml:"assetsdir"`
 	PluginsDir       string `toml:"pluginsdir"`
 	TemplateDirFile  string `toml:"templatedirfile"`
@@ -191,6 +193,11 @@ func (cfg *config) load() error {
 		}
 		cfg.PluginsDir = expandPath(cfg.PluginsDir)
 
+		if cfg.MemoTemplate == "" {
+			cfg.MemoTemplate = filepath.Join(confDir, "template.txt")
+		}
+		cfg.MemoTemplate = expandPath(cfg.MemoTemplate)
+
 		dir := os.Getenv("MEMODIR")
 		if dir != "" {
 			cfg.MemoDir = dir
@@ -219,7 +226,7 @@ func (cfg *config) load() error {
 	cfg.AssetsDir = "."
 	dir = filepath.Join(confDir, "plugins")
 	os.MkdirAll(dir, 0700)
-	cfg.PluginsDir = dir
+	cfg.PluginsDir = filepath.ToSlash(dir)
 
 	dir = os.Getenv("MEMODIR")
 	if dir != "" {
@@ -352,7 +359,11 @@ func cmdList(c *cli.Context) error {
 			}
 			fmt.Println(b.String())
 		} else if istty && !fullpath {
-			title := runewidth.Truncate(firstline(filepath.Join(cfg.MemoDir, file)), 80-4-col, "...")
+			wi := cfg.Width
+			if wi == 0 {
+				wi = width
+			}
+			title := runewidth.Truncate(firstline(filepath.Join(cfg.MemoDir, file)), wi-4-col, "...")
 			file = runewidth.FillRight(runewidth.Truncate(file, col, "..."), col)
 			fmt.Fprintf(color.Output, "%s : %s\n", color.GreenString(file), color.YellowString(title))
 		} else {
@@ -442,9 +453,10 @@ func cmdNew(c *cli.Context) error {
 
 	var title string
 	var file string
+	now := time.Now()
 	if c.Args().Present() {
 		title = c.Args().First()
-		file = time.Now().Format("2006-01-02-") + escape(title) + ".md"
+		file = now.Format("2006-01-02-") + escape(title) + ".md"
 	} else {
 		fmt.Print("Title: ")
 		scanner := bufio.NewScanner(os.Stdin)
@@ -456,20 +468,28 @@ func cmdNew(c *cli.Context) error {
 		}
 		title = scanner.Text()
 		if title == "" {
-			title = time.Now().Format("2006-01-02")
+			title = now.Format("2006-01-02")
 			file = title + ".md"
 
 		} else {
-			file = time.Now().Format("2006-01-02-") + escape(title) + ".md"
+			file = now.Format("2006-01-02-") + escape(title) + ".md"
 		}
-
 	}
 	file = filepath.Join(cfg.MemoDir, file)
-	t := template.Must(template.New("memo").Parse(templateMemoContent))
-
 	if fileExists(file) {
 		return cfg.runcmd(cfg.Editor, "", file)
 	}
+
+	tmplString := templateMemoContent
+
+	if fileExists(cfg.MemoTemplate) {
+		b, err := ioutil.ReadFile(cfg.MemoTemplate)
+		if err != nil {
+			return err
+		}
+		tmplString = filterTmpl(string(b))
+	}
+	t := template.Must(template.New("memo").Parse(tmplString))
 
 	f, err := os.Create(file)
 	if err != nil {
@@ -477,15 +497,24 @@ func cmdNew(c *cli.Context) error {
 	}
 
 	err = t.Execute(f, struct {
-		Title string
+		Title, Date, Tags, Categories string
 	}{
-		title,
+		title, now.Format("2006-01-02 15:04"), "", "",
 	})
 	f.Close()
 	if err != nil {
 		return err
 	}
 	return cfg.runcmd(cfg.Editor, "", file)
+}
+
+var filterReg = regexp.MustCompile(`{{_(.+?)_}}`)
+
+func filterTmpl(tmpl string) string {
+	return filterReg.ReplaceAllStringFunc(tmpl, func(substr string) string {
+		m := filterReg.FindStringSubmatch(substr)
+		return fmt.Sprintf("{{.%s}}", strings.Title(m[1]))
+	})
 }
 
 func cmdEdit(c *cli.Context) error {
