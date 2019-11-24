@@ -124,6 +124,12 @@ var commands = []cli.Command{
 		Action:  cmdEdit,
 	},
 	{
+		Name:    "cat",
+		Aliases: []string{"v"},
+		Usage:   "view memo",
+		Action:  cmdCat,
+	},
+	{
 		Name:    "delete",
 		Aliases: []string{"d"},
 		Usage:   "delete memo",
@@ -444,6 +450,17 @@ func fileExists(filename string) bool {
 	return err == nil
 }
 
+func copyFromStdin(filename string) error {
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, os.Stdin)
+	return err
+}
+
 func cmdNew(c *cli.Context) error {
 	var cfg config
 	err := cfg.load()
@@ -477,6 +494,9 @@ func cmdNew(c *cli.Context) error {
 	}
 	file = filepath.Join(cfg.MemoDir, file)
 	if fileExists(file) {
+		if !isatty.IsTerminal(os.Stdin.Fd()) {
+			return copyFromStdin(file)
+		}
 		return cfg.runcmd(cfg.Editor, "", file)
 	}
 
@@ -505,6 +525,10 @@ func cmdNew(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		return copyFromStdin(file)
+	}
 	return cfg.runcmd(cfg.Editor, "", file)
 }
 
@@ -515,6 +539,38 @@ func filterTmpl(tmpl string) string {
 		m := filterReg.FindStringSubmatch(substr)
 		return fmt.Sprintf("{{.%s}}", strings.Title(m[1]))
 	})
+}
+
+func (cfg *config) filterFiles() ([]string, error) {
+	var files []string
+	f, err := os.Open(cfg.MemoDir)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	files, err = f.Readdirnames(-1)
+	if err != nil {
+		return nil, err
+	}
+	files = filterMarkdown(files)
+	var buf bytes.Buffer
+	err = cfg.runfilter(cfg.SelectCmd, strings.NewReader(strings.Join(files, "\n")), &buf)
+	if err != nil {
+		// TODO:
+		// Some select tools return non-zero, and some return zero.
+		// This part can't handle whether the command execute failure or
+		// the select command exit non-zero.
+		//return fmt.Errorf("%v: you need to install peco first: https://github.com/peco/peco", err)
+		return nil, err
+	}
+	if buf.Len() == 0 {
+		return nil, errors.New("No files selected")
+	}
+	files = strings.Split(strings.TrimSpace(buf.String()), "\n")
+	for i, file := range files {
+		files[i] = filepath.Join(cfg.MemoDir, file)
+	}
+	return files, nil
 }
 
 func cmdEdit(c *cli.Context) error {
@@ -528,35 +584,56 @@ func cmdEdit(c *cli.Context) error {
 	if c.Args().Present() {
 		files = append(files, filepath.Join(cfg.MemoDir, c.Args().First()))
 	} else {
-		f, err := os.Open(cfg.MemoDir)
+		files, err = cfg.filterFiles()
 		if err != nil {
 			return err
-		}
-		defer f.Close()
-		files, err = f.Readdirnames(-1)
-		if err != nil {
-			return err
-		}
-		files = filterMarkdown(files)
-		var buf bytes.Buffer
-		err = cfg.runfilter(cfg.SelectCmd, strings.NewReader(strings.Join(files, "\n")), &buf)
-		if err != nil {
-			// TODO:
-			// Some select tools return non-zero, and some return zero.
-			// This part can't handle whether the command execute failure or
-			// the select command exit non-zero.
-			//return fmt.Errorf("%v: you need to install peco first: https://github.com/peco/peco", err)
-			return err
-		}
-		if buf.Len() == 0 {
-			return errors.New("No files selected")
-		}
-		files = strings.Split(strings.TrimSpace(buf.String()), "\n")
-		for i, file := range files {
-			files[i] = filepath.Join(cfg.MemoDir, file)
 		}
 	}
 	return cfg.runcmd(cfg.Editor, "", files...)
+}
+
+func catFile(file string) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
+	return scanner.Err()
+}
+
+func cmdCat(c *cli.Context) error {
+	var cfg config
+	err := cfg.load()
+	if err != nil {
+		return err
+	}
+
+	var files []string
+	if c.Args().Present() {
+		files = append(files, filepath.Join(cfg.MemoDir, c.Args().First()))
+	} else {
+		files, err = cfg.filterFiles()
+		if err != nil {
+			return err
+		}
+	}
+
+	for i, file := range files {
+		if i > 0 {
+			// Print new page
+			fmt.Println("\x12")
+		}
+		err = catFile(file)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func cmdDelete(c *cli.Context) error {
